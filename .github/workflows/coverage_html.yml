@@ -8,17 +8,9 @@ on:
         required: false
         type: string
         default: '3.12'
-      test_filter:
-        description: 'pytest -k filter (empty = all Fortran tests)'
-        required: false
-        type: string
-        default: ''
 
 permissions:
   actions: read
-
-env:
-  PYTHON_VERSION: ${{ inputs.python_version || '3.12' }}
 
 jobs:
   coverage:
@@ -30,52 +22,38 @@ jobs:
         with:
           submodules: true
 
-      - name: Set up Python ${{ env.PYTHON_VERSION }}
+      - name: Set up Python ${{ inputs.python_version || '3.12' }}
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: ${{ inputs.python_version || '3.12' }}
 
       - name: Install dependencies
+        uses: ./.github/actions/linux_install
+
+      - name: Install Pyccel with tests
         run: |
           python -m pip install --upgrade pip
-          python -m pip install coverage
           python -m pip install .[test]
 
-      - name: Setup coverage auto-start
-        run: |
-          INSTALL_DIR=$(python -c "import pyccel; print(pyccel.__path__[0])")
-          SITE_DIR=$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')
-          echo "import coverage; coverage.process_startup()" > ${SITE_DIR}/pyccel_cov.pth
-          cat > .coveragerc <<EOF
-          [run]
-          parallel = True
-          source = ${INSTALL_DIR}
-          data_file = $(pwd)/.coverage
-          omit = */pyccel/extensions/*
-          [report]
-          include = ${INSTALL_DIR}/*
-          [html]
-          directory = htmlcov
-          EOF
-          echo "SITE_DIR=${SITE_DIR}" >> $GITHUB_ENV
-          echo "COVERAGE_PROCESS_START=$(pwd)/.coveragerc" >> $GITHUB_ENV
+      - name: Coverage install
+        uses: ./.github/actions/coverage_install
 
-      - name: Run Fortran tests
-        run: |
-          FILTER="${{ inputs.test_filter }}"
-          if [ -n "$FILTER" ]; then
-            python -m pytest tests/codegen/fcode/ tests/epyccel/ tests/errors/ \
-              -m fortran --tb=line -q -k "$FILTER" || true
-          else
-            python -m pytest tests/codegen/fcode/ tests/epyccel/ tests/errors/ \
-              -m fortran --tb=line -q || true
-          fi
+      - name: Fortran/C tests
+        uses: ./.github/actions/pytest_run
+
+      - name: Python tests
+        uses: ./.github/actions/pytest_run_python
+
+      - name: Parallel tests
+        uses: ./.github/actions/pytest_parallel
 
       - name: Collect coverage
+        continue-on-error: true
+        uses: ./.github/actions/coverage_collection
+
+      - name: Generate HTML report
         run: |
-          rm ${SITE_DIR}/pyccel_cov.pth
-          coverage combine || true
-          coverage report --show-missing || true
+          echo -e "[paths]\nsource =\n   $(pwd)/pyccel\n   */site-packages/pyccel\n[html]\ndirectory = htmlcov" > .coveragerc
           coverage html || true
 
       - name: Upload HTML report
