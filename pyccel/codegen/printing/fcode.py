@@ -254,6 +254,10 @@ iso_c_binding_shortcut_mapping = {
     "C_BOOL": "b1",
 }
 
+iso_c_binding_shortcut_reverse = {
+    v: k for k, v in iso_c_binding_shortcut_mapping.items()
+}
+
 inc_keyword = (
     r"do\b",
     r"if \(.*?\) then$",
@@ -358,7 +362,7 @@ class FCodePrinter(CodePrinter):
 
         Get the name of a randint_fill helper subroutine for the given
         integer kind. The helper is registered in _helper_subroutines so
-        it will be included in the module contains section.
+        it will be included in the contains section.
 
         Parameters
         ----------
@@ -375,8 +379,19 @@ class FCodePrinter(CodePrinter):
         """
         name = "pyccel_randint_fill_{0}".format(int_kind)
         if name not in self._helper_subroutines:
+            imports = [
+                (
+                    "{0} => {1}".format(k, iso_c_binding_shortcut_reverse[k])
+                    if k in iso_c_binding_shortcut_reverse
+                    else k
+                )
+                for k in (int_kind, float_kind)
+            ]
+            import_clause = ", ".join(imports)
+
             self._helper_subroutines[name] = (
                 "subroutine {name}(n, arr, low, high)\n"
+                "use, intrinsic :: ISO_C_Binding, only : {imports}\n"
                 "implicit none\n"
                 "integer, intent(in) :: n\n"
                 "integer({ik}), intent(out) :: arr(n)\n"
@@ -386,7 +401,7 @@ class FCodePrinter(CodePrinter):
                 "call random_number(tmp)\n"
                 "arr = floor((high - low) * tmp + low, kind={ik})\n"
                 "end subroutine {name}\n"
-            ).format(name=name, ik=int_kind, fk=float_kind)
+            ).format(name=name, ik=int_kind, fk=float_kind, imports=import_clause)
         return name
 
     def _get_helper_subroutines_code(self):
@@ -2202,7 +2217,9 @@ class FCodePrinter(CodePrinter):
 
     def _print_NumpyRand(self, expr):
         if expr.rank != 0:
-            tmp_type = NumpyNDArrayType.get_new(NumpyFloat64Type(), expr.rank, expr.order)
+            tmp_type = NumpyNDArrayType.get_new(
+                NumpyFloat64Type(), expr.rank, expr.order
+            )
             var = self.scope.get_temporary_variable(
                 tmp_type, memory_handling="stack", shape=expr.shape
             )
@@ -2566,7 +2583,8 @@ class FCodePrinter(CodePrinter):
                 low_code = self._print(rhs.low)
             high_code = self._print(rhs.high)
             return "call {0}(size({1}), {1}, {2}, {3})\n".format(
-                helper_name, lhs_code, low_code, high_code)
+                helper_name, lhs_code, low_code, high_code
+            )
 
         if isinstance(rhs, NumpyEmpty):
             return ""
