@@ -2215,7 +2215,6 @@ class FCodePrinter(CodePrinter):
         return self._print(var)
 
     def _print_NumpyRandint(self, expr):
-        # Array case is handled in _print_Assign via helper subroutine (Solution H)
         if expr.rank != 0:
             errors.report(ALLOCATABLE_IN_EXPRESSION, symbol=expr, severity="fatal")
         rand = expr.rand_expr
